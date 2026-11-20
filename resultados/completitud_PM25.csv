@@ -1,0 +1,20 @@
+﻿,estacion,horas_validas,porcentaje_valido,cumple_75
+MOV2,Móvil Fontibón,8292,94.7,True
+JAZ,El Jazmín,8239,94.1,True
+MOV7,Móvil 7ma,8216,93.8,True
+CBV,Ciudad Bolívar,8169,93.3,True
+USM,Usme,8157,93.1,True
+BOL,Bolivia,8138,92.9,True
+SCR,San Cristóbal,8124,92.7,True
+FTB,Fontibón,8109,92.6,True
+LFR,Las Ferias,8055,92.0,True
+CDAR,Centro de Alto Rendimiento,8045,91.8,True
+KEN,Kennedy,7813,89.2,True
+SUB,Suba,7758,88.6,True
+PTE,Puente Aranda,7659,87.4,True
+MAM,MinAmbiente,7617,87.0,True
+TUN,Tunal,7508,85.7,True
+GYR,Guaymaral,7450,85.0,True
+CSE,Carvajal-Sevillana,7130,81.4,True
+USQ,Usaquén,7070,80.7,True
+COL,Colina,6220,71.0,False
