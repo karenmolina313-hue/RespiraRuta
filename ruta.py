@@ -41,10 +41,14 @@ IR_EPA = {               # m³/h
 
 MODOS = {
     # nombre:        velocidad (km/h), tasa de inhalación (m³/h),                     actividad (texto)
-    "Caminando":     {"velocidad": 4.5, "IR": IR_EPA["Moderada"],                                  "actividad": "Moderada (caminar rápido)"},
-    "Bicicleta":     {"velocidad": 14.0, "IR": (IR_EPA["Moderada"] + IR_EPA["Alta"]) / 2,         "actividad": "Entre moderada y alta"},
-    "TransMilenio":  {"velocidad": 23.0, "IR": IR_EPA["Ligera"],                                   "actividad": "Ligera (de pie)"},
-    "Carro":         {"velocidad": 20.0, "IR": IR_EPA["Sedentaria"],                               "actividad": "Sedentaria (sentado)"},
+    "Caminando":     {"velocidad": 4.5, "IR": IR_EPA["Moderada"],                                  "actividad": "Moderada (caminar rápido)",
+                     "emisiones": "Cero", "actividad_fisica": "Sí"},
+    "Bicicleta":     {"velocidad": 14.0, "IR": (IR_EPA["Moderada"] + IR_EPA["Alta"]) / 2,         "actividad": "Entre moderada y alta",
+                     "emisiones": "Cero", "actividad_fisica": "Sí"},
+    "TransMilenio":  {"velocidad": 23.0, "IR": IR_EPA["Ligera"],                                   "actividad": "Ligera (de pie)",
+                     "emisiones": "Bajas (compartido)", "actividad_fisica": "Poca"},
+    "Carro":         {"velocidad": 20.0, "IR": IR_EPA["Sedentaria"],                               "actividad": "Sedentaria (sentado)",
+                     "emisiones": "Altas", "actividad_fisica": "No"},
 }
 
 

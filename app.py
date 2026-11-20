@@ -235,30 +235,10 @@ def pestana_ruta():
     st.caption(f"**Recomendación según el nivel promedio del recorrido:** {rec} "
                "(La escala ICA oficial se define con promedios de 24 h; aquí es indicativa.)")
 
-    # --- Comparador de modos ---
-    st.subheader("¿Y si fueras en otro modo?")
-    factores = {modo: fmic}
-    modos = {k: dict(v) for k, v in MODOS.items()}
-    modos[modo].update(velocidad=vel, IR=ir)
-    comp = comparar_modos(lats, lons, salida, horario, TABLA, p=p, modos=modos, factores=factores)
-    colores = ["#c2410c" if k == modo else "#d9d9d9" for k in comp.index]
-    fig = go.Figure(go.Bar(x=comp.index, y=comp["dosis_ug"], marker_color=colores,
-                           text=[f"{v:.1f} µg<br>{d:.0f} min" for v, d in zip(comp["dosis_ug"], comp["duracion_min"])],
-                           textposition="outside", hovertemplate="%{x}: %{y:.1f} µg<extra></extra>"))
-    fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor="white",
-                      yaxis_title="Dosis inhalada (µg)", showlegend=False)
-    fig.update_yaxes(gridcolor="#eee", rangemode="tozero")
-    a, b = st.columns([1.4, 1])
-    a.plotly_chart(fig, width="stretch")
-    tabla_comp = comp[["duracion_min", "C_promedio", "dosis_ug"]].rename(columns={
-        "duracion_min": "Duración (min)", "C_promedio": f"{contaminante} promedio (µg/m³)", "dosis_ug": "Dosis (µg)"})
-    b.dataframe(tabla_comp.round(1), width="stretch")
-    b.caption("La dosis depende de tres cosas: cuánto contaminante hay (C), cuánto aire respiras (IR) "
-              "y cuánto tiempo estás expuesto (Δt). Caminar es lento y exige respirar más; el carro es rápido "
-              "y sedentario, pero el aire dentro del vehículo puede ser peor que afuera (factor de microambiente).")
-
-    # --- Mejor hora de salida ---
+    # --- Mejor hora de salida (mensaje principal: cambiar la hora, no el modo) ---
     st.subheader(f"¿A qué hora conviene salir? ({modo.lower()}, {salida:%d/%m/%Y})")
+    st.caption("La forma más efectiva de respirar menos sin dejar de caminar o pedalear es cambiar la hora "
+               "de salida o la ruta.")
     barrido = barrido_horas(lats, lons, fecha, vel, ir, horario, TABLA, p=p, factor_micro=fmic)
     barrido = barrido.dropna(subset=["dosis_ug"])
     if not barrido.empty:
@@ -278,10 +258,68 @@ def pestana_ruta():
         ahorro = 100 * (1 - barrido.loc[mejor_h, "dosis_ug"] / r["dosis_ug"])
         if ahorro > 1:
             st.success(f"Si sales a las **{mejor_h}:00** en vez de las {salida:%H:%M}, respiras "
-                       f"**{ahorro:.0f} % menos** {contaminante} en este recorrido. "
+                       f"**{ahorro:.0f} % menos** {contaminante} en este recorrido, sin cambiar de modo. "
                        f"La peor hora ese día fue las {peor_h}:00.")
         else:
             st.success("Tu hora de salida ya está entre las de menor exposición de ese día.")
+
+    # --- Comparador de modos: lo que respiras y lo que contaminas ---
+    st.subheader("Comparar modos: lo que respiras y lo que contaminas")
+    st.info(
+        "**Ojo: respirar menos durante el trayecto no significa que sea la mejor opción.**\n\n"
+        "- **La dosis mide lo que entra a tus pulmones, no lo que emites.** El carro particular es el modo que "
+        "más contamina el aire por persona; caminar y la bicicleta no emiten nada.\n"
+        "- **Caminar y pedalear dan actividad física.** Según Tainio et al. (2016), sus beneficios para la salud "
+        "superan el daño de la contaminación inhalada salvo en concentraciones extremas, muy por encima de las "
+        "de Bogotá; y si la bicicleta reemplaza al carro, el balance es aún mejor.\n"
+        "- **El aire dentro del carro no es aire limpio.** El cálculo asume que adentro es igual que afuera "
+        "(F = 1), pero varios estudios encuentran concentraciones iguales o mayores dentro del vehículo en "
+        "tráfico, así que la dosis del carro probablemente está subestimada (puedes cambiar F en "
+        "*Supuestos del modelo*).\n\n"
+        "**Recomendación:** mantén tu modo activo y reduce tu exposición cambiando la hora de salida o "
+        "eligiendo calles alejadas de las vías con más tráfico.")
+
+    factores = {modo: fmic}
+    modos = {k: dict(v) for k, v in MODOS.items()}
+    modos[modo].update(velocidad=vel, IR=ir)
+    comp = comparar_modos(lats, lons, salida, horario, TABLA, p=p, modos=modos, factores=factores)
+
+    # Color de cada barra según lo que el modo le aporta a la contaminación de la ciudad
+    COLOR_EMISION = {"Cero": "#1D9E75", "Bajas": "#888780", "Altas": "#D85A30"}
+    def grupo_emision(texto):
+        return texto.split()[0]
+    colores = [COLOR_EMISION[grupo_emision(MODOS[k]["emisiones"])] for k in comp.index]
+    bordes = [3 if k == modo else 0 for k in comp.index]
+    fig = go.Figure(go.Bar(x=comp.index, y=comp["dosis_ug"], marker_color=colores,
+                           marker_line=dict(color="#2b2b2b", width=bordes),
+                           text=[f"{v:.1f} µg<br>{d:.0f} min" for v, d in zip(comp["dosis_ug"], comp["duracion_min"])],
+                           textposition="outside", hovertemplate="%{x}: %{y:.1f} µg<extra></extra>"))
+    fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), plot_bgcolor="white",
+                      yaxis_title="Dosis inhalada en el trayecto (µg)", showlegend=False)
+    fig.update_yaxes(gridcolor="#eee", rangemode="tozero")
+    a, b = st.columns([1.2, 1.3])
+    a.plotly_chart(fig, width="stretch")
+    a.markdown(
+        '<span style="font-size:13px"><span style="display:inline-block;width:12px;height:12px;'
+        'background:#1D9E75;border-radius:2px;margin-right:4px"></span>No emite &nbsp;&nbsp;'
+        '<span style="display:inline-block;width:12px;height:12px;background:#888780;border-radius:2px;'
+        'margin-right:4px"></span>Transporte colectivo &nbsp;&nbsp;'
+        '<span style="display:inline-block;width:12px;height:12px;background:#D85A30;border-radius:2px;'
+        'margin-right:4px"></span>Emite más por persona &nbsp;&nbsp; (borde negro = tu modo)</span>',
+        unsafe_allow_html=True)
+    tabla_comp = pd.DataFrame({
+        "Dosis (µg)": comp["dosis_ug"].round(1),
+        "Duración (min)": comp["duracion_min"].round(0).astype(int),
+        "Emisiones propias": [MODOS[k]["emisiones"] for k in comp.index],
+        "Actividad física": [MODOS[k]["actividad_fisica"] for k in comp.index],
+    }, index=comp.index)
+    b.dataframe(tabla_comp, width="stretch")
+    b.caption("Dosis = C · F · IR · Δt. Caminar es lento y exige respirar más aire por minuto; por eso su dosis "
+              "en el trayecto es mayor, pero no contamina y aporta actividad física.\n\n"
+              "**Referencia:** Tainio, M., de Nazelle, A. J., Götschi, T., Kahlmeier, S., Rojas-Rueda, D., "
+              "Nieuwenhuijsen, M. J., de Sá, T. H., Kelly, P., y Woodcock, J. (2016). Can air pollution negate "
+              "the health benefits of cycling and walking? *Preventive Medicine, 87*, 233–236. "
+              "https://doi.org/10.1016/j.ypmed.2016.02.002")
 
 
 # ----------------------------------------------------------------------------------------------
