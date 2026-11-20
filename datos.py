@@ -47,10 +47,17 @@ def leer_fecha(serie_texto):
     return fecha
 
 
-def leer_archivo(ruta):
-    """Lee un archivo de una estación y devuelve un DataFrame limpio con índice horario."""
-    ruta = Path(ruta)
-    df = pd.read_excel(ruta)
+def leer_archivo(ruta, nombre=None):
+    """
+    Lee un archivo de una estación y devuelve un DataFrame limpio con índice horario.
+    ruta   : ruta del archivo, o el contenido del archivo (por ejemplo, uno subido en la app)
+    nombre : nombre del archivo (necesario si 'ruta' es contenido y no una ruta)
+    """
+    nombre = nombre or Path(ruta).name
+    if nombre.lower().endswith(".csv"):
+        df = pd.read_csv(ruta, sep=None, engine="python")
+    else:
+        df = pd.read_excel(ruta)
     df = df.rename(columns=_RENOMBRAR)
     df["Fecha"] = leer_fecha(df["Fecha"])
     df = df.set_index("Fecha").sort_index()
@@ -83,6 +90,22 @@ def cargar_carpeta(carpeta, patron="*.xlsx"):
     if not datos:
         raise FileNotFoundError(f"No encontré archivos {patron} en {carpeta}")
     return datos
+
+
+def cargar_archivos(archivos):
+    """
+    Lee una lista de archivos subidos: [(nombre, contenido_en_bytes), ...].
+    Devuelve ({sigla: DataFrame}, [mensajes de error]).
+    """
+    import io
+    datos, errores = {}, []
+    for nombre, contenido in archivos:
+        try:
+            sigla = buscar_estacion(nombre)
+            datos[sigla] = leer_archivo(io.BytesIO(contenido), nombre=nombre)
+        except Exception as e:          # se informa en la app y se siguen leyendo los demás
+            errores.append(f"{nombre}: {e}")
+    return datos, errores
 
 
 def matriz_contaminante(datos, contaminante="PM2.5"):

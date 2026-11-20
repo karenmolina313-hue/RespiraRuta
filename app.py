@@ -15,13 +15,14 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit_folium import st_folium
 
-from datos import cargar_carpeta, matriz_contaminante, reporte_completitud
+from datos import cargar_archivos, cargar_carpeta, matriz_contaminante, reporte_completitud
 from estaciones import tabla_estaciones
 from ica import CATEGORIAS, LIMITE_24H, categoria_concentracion, ica_vector
 from folium.plugins import Draw
 
 from idw import distancia_km, idw
 from ruta import MODOS, barrido_horas, comparar_modos, exposicion_ruta
+from validacion import comparar_metodos
 
 st.set_page_config(page_title="RespiraRuta", page_icon="🌫️", layout="wide")
 
@@ -38,14 +39,27 @@ def carpeta_datos():
     return local if local.is_dir() else CARPETA_PROYECTO.parent
 
 
-@st.cache_data(show_spinner="Leyendo los archivos de la RMCAB (solo la primera vez)…", persist="disk")
-def cargar(carpeta):
-    datos = cargar_carpeta(carpeta)
+def preparar(datos):
     horario = {c: matriz_contaminante(datos, c) for c in ["PM2.5", "PM10"]}
     # Promedio móvil de 24 h: es el tiempo de exposición con el que se define el ICA de PM.
     # Se exige el 75 % de las horas (18 de 24) para que el promedio sea válido.
     movil24 = {c: m.rolling(24, min_periods=18).mean() for c, m in horario.items()}
     return horario, movil24
+
+
+@st.cache_data(show_spinner="Leyendo los archivos de la RMCAB (solo la primera vez)…", persist="disk")
+def cargar(carpeta):
+    return cargar_carpeta(carpeta)
+
+
+@st.cache_data(show_spinner="Procesando los archivos subidos…")
+def cargar_subidos(archivos):
+    return cargar_archivos(list(archivos))
+
+
+@st.cache_data(show_spinner="Calculando la validación cruzada con estos datos…")
+def validar(_horario, clave, contaminante):
+    return comparar_metodos(_horario, tabla_estaciones())
 
 
 # Degradado continuo sobre los colores oficiales del ICA (cada color en el centro de su rango)
@@ -273,16 +287,43 @@ def pestana_ruta():
 # ----------------------------------------------------------------------------------------------
 # Interfaz
 # ----------------------------------------------------------------------------------------------
+# --- Origen de los datos: carpeta del proyecto y/o archivos subidos en la app ---
+with st.sidebar:
+    with st.expander("📂 Cargar datos nuevos", expanded=False):
+        subidos = st.file_uploader("Archivos horarios de la RMCAB (.xlsx o .csv), uno por estación",
+                                   type=["xlsx", "csv"], accept_multiple_files=True,
+                                   help="El nombre del archivo debe decir la estación, p. ej. Kennedy_2024.xlsx")
+        solo_subidos = st.checkbox("Usar solo los archivos subidos", value=True,
+                                   help="Si se desmarca, los subidos se suman a los de la carpeta "
+                                        "(y reemplazan a la misma estación).")
+
+datos_carpeta = {}
 try:
-    HORARIO, MOVIL24 = cargar(str(carpeta_datos()))
-except FileNotFoundError as e:
-    st.error(f"No encontré los archivos de datos. {e}")
+    datos_carpeta = cargar(str(carpeta_datos()))
+except FileNotFoundError:
+    pass
+
+if subidos:
+    datos_nuevos, errores = cargar_subidos(tuple((f.name, f.getvalue()) for f in subidos))
+    for e in errores:
+        st.sidebar.error(f"No pude leer {e}")
+    datos_usados = datos_nuevos if solo_subidos else {**datos_carpeta, **datos_nuevos}
+    origen = f"{len(datos_nuevos)} archivo(s) subido(s)" + ("" if solo_subidos else " + carpeta")
+else:
+    datos_usados = datos_carpeta
+    origen = "carpeta del proyecto"
+
+if not datos_usados:
+    st.error("No hay datos: pon los archivos .xlsx de la RMCAB en la carpeta o súbelos en la barra lateral.")
     st.stop()
+
+HORARIO, MOVIL24 = preparar(datos_usados)
+CLAVE_DATOS = (origen, tuple(sorted(datos_usados)), str(HORARIO["PM2.5"].index.min()))
 
 TABLA = tabla_estaciones()
 
 st.title("RespiraRuta")
-st.caption("Exposición a la contaminación del aire en Bogotá · datos horarios RMCAB 2025 · "
+st.caption("Exposición a la contaminación del aire en Bogotá · datos horarios RMCAB · "
            "ICA según la Resolución 2254 de 2017")
 
 with st.sidebar:
@@ -296,11 +337,17 @@ with st.sidebar:
 
     matriz = HORARIO[contaminante]
     fechas = matriz.index
-    fecha = st.date_input("Fecha", value=pd.Timestamp("2025-02-14").date(),
+    sugerida = pd.Timestamp("2025-02-14")
+    if not (fechas.min() <= sugerida <= fechas.max()):
+        sugerida = fechas.min().normalize() + pd.Timedelta(days=1)
+    fecha = st.date_input("Fecha", value=sugerida.date(),
                           min_value=fechas.min().date(), max_value=(fechas.max() - pd.Timedelta(hours=1)).date())
     hora = st.slider("Hora", 1, 24, 8,
                      help="La RMCAB marca cada dato al final de la hora: 08:00 es el promedio de 07:00 a 08:00.")
     st.caption(f"Promedio de {hora - 1:02d}:00 a {hora:02d}:00")
+    st.divider()
+    st.caption(f"**Datos en uso:** {origen} · {len(datos_usados)} estaciones · "
+               f"{fechas.min():%d/%m/%Y} a {(fechas.max() - pd.Timedelta(hours=1)):%d/%m/%Y}")
 
 instante = pd.Timestamp(fecha) + pd.Timedelta(hours=hora)
 fuente = MOVIL24[contaminante] if tipo.startswith("Promedio") else HORARIO[contaminante]
@@ -393,6 +440,16 @@ with tab_datos:
     st.dataframe(comp, width="stretch")
     st.caption("Las horas sin dato vienen como 0 en la descarga de la RMCAB y se tratan como faltantes.")
     st.subheader("Validación de la interpolación")
+    st.markdown("Validación cruzada *deja una fuera*: se esconde cada estación, se estima con las demás "
+                "y se compara con lo que midió. Se puede recalcular con los datos que estén cargados.")
+    if st.button(f"▶️ Recalcular validación de {contaminante} con los datos en uso"):
+        tabla_viva = validar(HORARIO[contaminante], CLAVE_DATOS, contaminante)
+        st.dataframe(tabla_viva.round(3), width="stretch")
+        solo = tabla_viva[tabla_viva["p"] > 0]
+        st.success(f"Menor error con **{solo['RMSE'].idxmin()}** (RMSE = {solo['RMSE'].min():.2f} µg/m³). "
+                   f"Promedio simple: {tabla_viva.iloc[0]['RMSE']:.2f} · estación más cercana: "
+                   f"{tabla_viva.iloc[-1]['RMSE']:.2f} µg/m³.")
+    st.markdown("**Resultados guardados (datos de la carpeta, script `paso2_validar_idw.py`):**")
     carpeta_res = CARPETA_PROYECTO / "resultados"
     etiqueta = contaminante.replace(".", "")
     tabla_val = carpeta_res / f"comparacion_metodos_{etiqueta}.csv"
